@@ -1,0 +1,174 @@
+# Codemagic CI/CD Configuration for CQ Chat App
+# Documentation: https://docs.codemagic.io/yaml/yaml-getting-started/
+
+workflows:
+  # ============================================
+  # iOS Development Build (No signing required)
+  # ============================================
+  ios-dev-build:
+    name: iOS Development Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install
+      
+      - name: Build iOS (Simulator)
+        script: |
+          flutter build ios --debug --simulator
+    
+    artifacts:
+      - build/ios/iphonesimulator/*.app
+    
+    publishing:
+      email:
+        recipients:
+          - yangliuxia168@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ============================================
+  # iOS Release Build (Requires Apple Developer)
+  # ============================================
+  ios-release:
+    name: iOS Release Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - app_store_credentials  # Configure in Codemagic UI
+      vars:
+        BUNDLE_ID: "com.cq.cq_app"
+        APP_STORE_APP_ID: "YOUR_APP_STORE_ID"  # Replace after App Store registration
+    
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install
+      
+      - name: Set up code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+      
+      - name: Build iOS IPA
+        script: |
+          flutter build ipa --release \
+            --build-name=1.0.0 \
+            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID") + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    
+    publishing:
+      email:
+        recipients:
+          - yangliuxia168@gmail.com
+        notify:
+          success: true
+          failure: true
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - Internal Testers
+
+  # ============================================
+  # Android APK Build
+  # ============================================
+  android-build:
+    name: Android APK Build
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+    
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+    
+    publishing:
+      email:
+        recipients:
+          - yangliuxia168@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ============================================
+  # Full Build (Android + iOS Simulator)
+  # ============================================
+  full-build:
+    name: Full Platform Build
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      java: 17
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+      
+      - name: Install CocoaPods
+        script: |
+          cd ios && pod install
+      
+      - name: Build iOS (Simulator)
+        script: |
+          flutter build ios --debug --simulator
+    
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/ios/iphonesimulator/*.app
+    
+    publishing:
+      email:
+        recipients:
+          - yangliuxia168@gmail.com
+        notify:
+          success: true
+          failure: true
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
